@@ -106,7 +106,7 @@ static bool is_local_file_modified(obs_properties_t *props,
 static void ffmpeg_source_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_bool(settings, "is_local_file", true);
-	obs_data_set_default_bool(settings, "looping", false);
+	obs_data_set_default_bool(settings, "looping", true);
 	obs_data_set_default_bool(settings, "clear_on_media_end", true);
 	obs_data_set_default_bool(settings, "restart_on_activate", true);
 	obs_data_set_default_int(settings, "reconnect_delay_sec", 10);
@@ -328,6 +328,7 @@ static void ffmpeg_source_start(struct ffmpeg_source *s)
 		obs_source_show_preloaded_video(s->source);
 	else
 		obs_source_output_video(s->source, NULL);
+	obs_source_set_monitoring_type(s->source, OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT);
 	set_media_state(s, OBS_MEDIA_STATE_PLAYING);
 	obs_source_media_started(s->source);
 }
