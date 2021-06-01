@@ -27,17 +27,17 @@
 
 /* clang-format off */
 
-#define SETTING_MODE             "capture_mode"
-#define SETTING_CAPTURE_WINDOW   "window"
-#define SETTING_ACTIVE_WINDOW    "active_window"
-#define SETTING_WINDOW_PRIORITY  "priority"
-#define SETTING_COMPATIBILITY    "sli_compatibility"
-#define SETTING_CURSOR           "capture_cursor"
-#define SETTING_TRANSPARENCY     "allow_transparency"
-#define SETTING_LIMIT_FRAMERATE  "limit_framerate"
-#define SETTING_CAPTURE_OVERLAYS "capture_overlays"
-#define SETTING_ANTI_CHEAT_HOOK  "anti_cheat_hook"
-#define SETTING_HOOK_RATE        "hook_rate"
+#define SETTING_MODE                 "capture_mode"
+#define SETTING_CAPTURE_WINDOW       "window"
+#define SETTING_ACTIVE_WINDOW        "active_window"
+#define SETTING_WINDOW_PRIORITY      "priority"
+#define SETTING_COMPATIBILITY        "sli_compatibility"
+#define SETTING_CURSOR               "capture_cursor"
+#define SETTING_TRANSPARENCY         "allow_transparency"
+#define SETTING_LIMIT_FRAMERATE      "limit_framerate"
+#define SETTING_CAPTURE_OVERLAYS     "capture_overlays"
+#define SETTING_ANTI_CHEAT_HOOK      "anti_cheat_hook"
+#define SETTING_HOOK_RATE            "hook_rate"
 
 /* deprecated */
 #define SETTING_ANY_FULLSCREEN   "capture_any_fullscreen"
@@ -2065,7 +2065,7 @@ struct obs_source_info game_capture_info = {
 	.id = "game_capture",
 	.type = OBS_SOURCE_TYPE_INPUT,
 	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW |
-			OBS_SOURCE_DO_NOT_DUPLICATE,
+			OBS_SOURCE_DO_NOT_DUPLICATE | OBS_SOURCE_SRGB,
 	.get_name = game_capture_name,
 	.create = game_capture_create,
 	.destroy = game_capture_destroy,

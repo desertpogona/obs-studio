@@ -110,6 +110,7 @@ static bool get_client_box(HWND window, uint32_t width, uint32_t height,
 struct winrt_capture {
 	HWND window;
 	bool client_area;
+	HMONITOR monitor;
 
 	bool capture_cursor;
 	BOOL cursor_visible;
@@ -232,8 +233,27 @@ static void winrt_capture_device_loss_release(void *data)
 	capture->active = FALSE;
 
 	capture->frame_arrived.revoke();
-	capture->frame_pool.Close();
-	capture->session.Close();
+
+	try {
+		capture->frame_pool.Close();
+	} catch (winrt::hresult_error &err) {
+		blog(LOG_ERROR,
+		     "Direct3D11CaptureFramePool::Close (0x%08X): %ls",
+		     err.to_abi(), err.message().c_str());
+	} catch (...) {
+		blog(LOG_ERROR, "Direct3D11CaptureFramePool::Close (0x%08X)",
+		     winrt::to_hresult());
+	}
+
+	try {
+		capture->session.Close();
+	} catch (winrt::hresult_error &err) {
+		blog(LOG_ERROR, "GraphicsCaptureSession::Close (0x%08X): %ls",
+		     err.to_abi(), err.message().c_str());
+	} catch (...) {
+		blog(LOG_ERROR, "GraphicsCaptureSession::Close (0x%08X)",
+		     winrt::to_hresult());
+	}
 
 	capture->session = nullptr;
 	capture->frame_pool = nullptr;
@@ -260,6 +280,53 @@ try {
 }
 #endif
 
+static winrt::Windows::Graphics::Capture::GraphicsCaptureItem
+winrt_capture_create_item(IGraphicsCaptureItemInterop *const interop_factory,
+			  HWND window, HMONITOR monitor)
+{
+	winrt::Windows::Graphics::Capture::GraphicsCaptureItem item = {nullptr};
+	if (window) {
+		try {
+			const HRESULT hr = interop_factory->CreateForWindow(
+				window,
+				winrt::guid_of<ABI::Windows::Graphics::Capture::
+						       IGraphicsCaptureItem>(),
+				reinterpret_cast<void **>(
+					winrt::put_abi(item)));
+			if (FAILED(hr))
+				blog(LOG_ERROR, "CreateForWindow (0x%08X)", hr);
+		} catch (winrt::hresult_error &err) {
+			blog(LOG_ERROR, "CreateForWindow (0x%08X): %ls",
+			     err.to_abi(), err.message().c_str());
+		} catch (...) {
+			blog(LOG_ERROR, "CreateForWindow (0x%08X)",
+			     winrt::to_hresult());
+		}
+	} else {
+		assert(monitor);
+
+		try {
+			const HRESULT hr = interop_factory->CreateForMonitor(
+				monitor,
+				winrt::guid_of<ABI::Windows::Graphics::Capture::
+						       IGraphicsCaptureItem>(),
+				reinterpret_cast<void **>(
+					winrt::put_abi(item)));
+			if (FAILED(hr))
+				blog(LOG_ERROR, "CreateForMonitor (0x%08X)",
+				     hr);
+		} catch (winrt::hresult_error &err) {
+			blog(LOG_ERROR, "CreateForMonitor (0x%08X): %ls",
+			     err.to_abi(), err.message().c_str());
+		} catch (...) {
+			blog(LOG_ERROR, "CreateForMonitor (0x%08X)",
+			     winrt::to_hresult());
+		}
+	}
+
+	return item;
+}
+
 static void winrt_capture_device_loss_rebuild(void *device_void, void *data)
 {
 	winrt_capture *capture = static_cast<winrt_capture *>(data);
@@ -268,20 +335,9 @@ static void winrt_capture_device_loss_rebuild(void *device_void, void *data)
 		winrt::Windows::Graphics::Capture::GraphicsCaptureItem>();
 	auto interop_factory =
 		activation_factory.as<IGraphicsCaptureItemInterop>();
-	winrt::Windows::Graphics::Capture::GraphicsCaptureItem item = {nullptr};
-	try {
-		interop_factory->CreateForWindow(
-			capture->window,
-			winrt::guid_of<ABI::Windows::Graphics::Capture::
-					       IGraphicsCaptureItem>(),
-			reinterpret_cast<void **>(winrt::put_abi(item)));
-	} catch (winrt::hresult_error &err) {
-		blog(LOG_ERROR, "CreateForWindow (0x%08X): %ls", err.to_abi(),
-		     err.message().c_str());
-	} catch (...) {
-		blog(LOG_ERROR, "CreateForWindow (0x%08X)",
-		     winrt::to_hresult());
-	}
+	winrt::Windows::Graphics::Capture::GraphicsCaptureItem item =
+		winrt_capture_create_item(interop_factory.get(),
+					  capture->window, capture->monitor);
 
 	ID3D11Device *const d3d_device = (ID3D11Device *)device_void;
 	ComPtr<IDXGIDevice> dxgi_device;
@@ -341,8 +397,10 @@ static void winrt_capture_device_loss_rebuild(void *device_void, void *data)
 	}
 }
 
-extern "C" EXPORT struct winrt_capture *
-winrt_capture_init(BOOL cursor, HWND window, BOOL client_area)
+static struct winrt_capture *winrt_capture_init_internal(BOOL cursor,
+							 HWND window,
+							 BOOL client_area,
+							 HMONITOR monitor)
 try {
 	ID3D11Device *const d3d_device = (ID3D11Device *)gs_get_device_obj();
 	ComPtr<IDXGIDevice> dxgi_device;
@@ -365,26 +423,11 @@ try {
 		winrt::Windows::Graphics::Capture::GraphicsCaptureItem>();
 	auto interop_factory =
 		activation_factory.as<IGraphicsCaptureItemInterop>();
-	winrt::Windows::Graphics::Capture::GraphicsCaptureItem item = {nullptr};
-	try {
-		hr = interop_factory->CreateForWindow(
-			window,
-			winrt::guid_of<ABI::Windows::Graphics::Capture::
-					       IGraphicsCaptureItem>(),
-			reinterpret_cast<void **>(winrt::put_abi(item)));
-		if (FAILED(hr)) {
-			blog(LOG_ERROR, "CreateForWindow (0x%08X)", hr);
-			return nullptr;
-		}
-	} catch (winrt::hresult_error &err) {
-		blog(LOG_ERROR, "CreateForWindow (0x%08X): %ls", err.to_abi(),
-		     err.message().c_str());
+	winrt::Windows::Graphics::Capture::GraphicsCaptureItem item =
+		winrt_capture_create_item(interop_factory.get(), window,
+					  monitor);
+	if (!item)
 		return nullptr;
-	} catch (...) {
-		blog(LOG_ERROR, "CreateForWindow (0x%08X)",
-		     winrt::to_hresult());
-		return nullptr;
-	}
 
 	const winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice
 		device = inspectable.as<winrt::Windows::Graphics::DirectX::
@@ -420,6 +463,7 @@ try {
 	struct winrt_capture *capture = new winrt_capture{};
 	capture->window = window;
 	capture->client_area = client_area;
+	capture->monitor = monitor;
 	capture->capture_cursor = cursor && cursor_toggle_supported;
 	capture->cursor_visible = cursor;
 	capture->item = item;
@@ -456,6 +500,18 @@ try {
 	return nullptr;
 }
 
+extern "C" EXPORT struct winrt_capture *
+winrt_capture_init_window(BOOL cursor, HWND window, BOOL client_area)
+{
+	return winrt_capture_init_internal(cursor, window, client_area, NULL);
+}
+
+extern "C" EXPORT struct winrt_capture *
+winrt_capture_init_monitor(BOOL cursor, HMONITOR monitor)
+{
+	return winrt_capture_init_internal(cursor, NULL, false, monitor);
+}
+
 extern "C" EXPORT void winrt_capture_free(struct winrt_capture *capture)
 {
 	if (capture) {
@@ -479,8 +535,30 @@ extern "C" EXPORT void winrt_capture_free(struct winrt_capture *capture)
 
 		capture->frame_arrived.revoke();
 		capture->closed.revoke();
-		capture->frame_pool.Close();
-		capture->session.Close();
+
+		try {
+			capture->frame_pool.Close();
+		} catch (winrt::hresult_error &err) {
+			blog(LOG_ERROR,
+			     "Direct3D11CaptureFramePool::Close (0x%08X): %ls",
+			     err.to_abi(), err.message().c_str());
+		} catch (...) {
+			blog(LOG_ERROR,
+			     "Direct3D11CaptureFramePool::Close (0x%08X)",
+			     winrt::to_hresult());
+		}
+
+		try {
+			capture->session.Close();
+		} catch (winrt::hresult_error &err) {
+			blog(LOG_ERROR,
+			     "GraphicsCaptureSession::Close (0x%08X): %ls",
+			     err.to_abi(), err.message().c_str());
+		} catch (...) {
+			blog(LOG_ERROR,
+			     "GraphicsCaptureSession::Close (0x%08X)",
+			     winrt::to_hresult());
+		}
 
 		delete capture;
 	}
@@ -521,15 +599,32 @@ extern "C" EXPORT BOOL winrt_capture_active(const struct winrt_capture *capture)
 	return capture->active;
 }
 
-extern "C" EXPORT void winrt_capture_show_cursor(struct winrt_capture *capture,
+extern "C" EXPORT BOOL winrt_capture_show_cursor(struct winrt_capture *capture,
 						 BOOL visible)
 {
-	if (capture->capture_cursor) {
-		if (capture->cursor_visible != visible) {
-			capture->session.IsCursorCaptureEnabled(visible);
-			capture->cursor_visible = visible;
+	BOOL success = FALSE;
+
+	try {
+		if (capture->capture_cursor) {
+			if (capture->cursor_visible != visible) {
+				capture->session.IsCursorCaptureEnabled(
+					visible);
+				capture->cursor_visible = visible;
+			}
 		}
+
+		success = TRUE;
+	} catch (winrt::hresult_error &err) {
+		blog(LOG_ERROR,
+		     "GraphicsCaptureSession::IsCursorCaptureEnabled (0x%08X): %ls",
+		     err.to_abi(), err.message().c_str());
+	} catch (...) {
+		blog(LOG_ERROR,
+		     "GraphicsCaptureSession::IsCursorCaptureEnabled (0x%08X)",
+		     winrt::to_hresult());
 	}
+
+	return success;
 }
 
 extern "C" EXPORT void winrt_capture_render(struct winrt_capture *capture,
